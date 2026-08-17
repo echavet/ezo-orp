@@ -112,7 +112,7 @@ class EzoCompleteConfigFlow(ConfigFlow, domain=DOMAIN):
         )
         self._port = device
         self._serial_number = discovery_info.serial_number
-        self._discovery_name = discovery_info.description or DEFAULT_NAME
+        self._discovery_name = DEFAULT_NAME
 
         error = await self._async_validate_and_set_unique_id(
             device, DEFAULT_BAUDRATE, serial_number=discovery_info.serial_number

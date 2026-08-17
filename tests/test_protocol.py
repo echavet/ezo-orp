@@ -27,6 +27,7 @@ def _load(name: str, path: Path):
 
 const = _load("ezo_complete.const", PKG_DIR / "const.py")
 protocol = _load("ezo_complete.protocol", PKG_DIR / "protocol.py")
+client = _load("ezo_complete.client", PKG_DIR / "client.py")
 
 
 def test_encode_command() -> None:
@@ -57,6 +58,11 @@ def test_parse_device_info_orp() -> None:
     assert info.device_type == "ORP"
     assert info.firmware == "1.98"
     assert protocol.is_orp_info_response("?i,ORP,2.10\r*OK")
+
+
+def test_reject_continuous_readings_as_identity() -> None:
+    assert protocol.parse_device_info("323.1") is None
+    assert not protocol.is_orp_info_response("323.1\r323.0")
 
 
 def test_reject_other_ezo() -> None:
@@ -121,6 +127,44 @@ def test_unique_id() -> None:
 
 def test_export_count() -> None:
     assert protocol.parse_export_count("?EXPORT,6") == 6
+
+
+def test_parse_calibrated_mixed_stream() -> None:
+    assert protocol.parse_calibrated("?Cal,1") is True
+    assert protocol.parse_calibrated("?cal,0") is False
+    mixed = protocol.EzoResponse(
+        command="Cal,?",
+        lines=[
+            protocol.parse_line("350.1"),
+            protocol.parse_line("?Cal,1"),
+            protocol.parse_line("*OK"),
+        ],
+    )
+    assert protocol.parse_calibrated(mixed) is True
+
+
+def test_cal_command_not_terminated_by_stray_reading() -> None:
+    reading = protocol.parse_line("350.4")
+    ok = protocol.parse_line("*OK")
+    query = protocol.parse_line("?Cal,1")
+    assert client._is_terminal([reading], "Cal,225") is False
+    assert client._is_terminal([reading, ok], "Cal,225") is True
+    assert client._is_terminal([reading], "Cal,?") is False
+    assert client._is_terminal([reading, query], "Cal,?") is True
+    assert client._is_terminal([reading], "R") is True
+    assert client._is_terminal([reading], None) is False
+
+
+def test_usb_product_name() -> None:
+    assert protocol.is_usb_product_name("FT230X Basic UART")
+    assert protocol.is_usb_product_name("FTDI FT232R USB UART")
+    assert not protocol.is_usb_product_name("EZO ORP")
+    assert protocol.resolve_display_name(
+        ezo_name="pool", configured="FT230X Basic UART"
+    ) == "pool"
+    assert protocol.resolve_display_name(
+        ezo_name=None, configured="FT230X Basic UART"
+    ) == "EZO ORP"
 
 
 def test_response_code_aliases() -> None:

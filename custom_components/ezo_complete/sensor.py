@@ -51,6 +51,7 @@ SENSORS: tuple[EzoSensorEntityDescription, ...] = (
             "calibrated": s.calibrated,
             "extended_scale": s.orp_extended,
             "continuous": s.continuous,
+            "last_raw": s.last_raw,
         },
     ),
     EzoSensorEntityDescription(
@@ -88,6 +89,10 @@ SENSORS: tuple[EzoSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.ENUM,
         options=["calibrated", "not_calibrated"],
         value_fn=_calibrated_state,
+        extra_fn=lambda s: {
+            "orp": s.orp,
+            "last_raw": s.last_raw,
+        },
     ),
     EzoSensorEntityDescription(
         key="firmware",

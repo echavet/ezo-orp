@@ -108,15 +108,36 @@ class EzoSerialClient:
             await asyncio.sleep(WAKE_SETTLE)
             await self._drain_unlocked(0.3)
 
-    async def identify(self, timeout: float = COMMAND_TIMEOUT) -> DeviceInfoResponse:
-        """Send ``i`` and require an ORP identity."""
+    async def identify(
+        self, timeout: float = COMMAND_TIMEOUT, retries: int = 3
+    ) -> DeviceInfoResponse:
+        """Send ``i`` and require an ORP identity.
+
+        After Factory (or with continuous mode still on) the UART is full of
+        numeric readings. Stop the stream, drain, then retry ``i``.
+        """
         await self.wake()
-        response = await self.command("i", timeout=timeout)
-        info = parse_device_info(response)
-        if info is None or not info.is_orp:
-            raw = " | ".join(response.raw_lines) or "<empty>"
-            raise EzoNotOrpError(f"Not an EZO ORP device: {raw}")
-        return info
+        last_raw = "<empty>"
+        for attempt in range(max(retries, 1)):
+            try:
+                await self.command("C,0", timeout=timeout)
+            except EzoClientError:
+                pass
+            async with self._lock:
+                await self._drain_unlocked(0.6)
+            response = await self.command("i", timeout=timeout)
+            last_raw = " | ".join(response.raw_lines) or "<empty>"
+            info = parse_device_info(response)
+            if info is not None and info.is_orp:
+                return info
+            _LOGGER.info(
+                "identify attempt %s/%s got %s",
+                attempt + 1,
+                retries,
+                last_raw,
+            )
+            await asyncio.sleep(0.4)
+        raise EzoNotOrpError(f"Not an EZO ORP device: {last_raw}")
 
     async def _command_unlocked(
         self, cmd: str, timeout: float | None = None
@@ -128,16 +149,17 @@ class EzoSerialClient:
         if timeout is None:
             timeout = READ_COMMAND_TIMEOUT if lowered == "r" else COMMAND_TIMEOUT
 
-        await self._drain_unlocked(0.05)
+        drain_s = 0.5 if lowered in {"c", "i", "factory"} else 0.05
+        await self._drain_unlocked(drain_s)
         await self._write_unlocked(encode_command(name))
 
         if lowered in _NO_REPLY_COMMANDS:
             return EzoResponse(command=name)
 
-        lines = await self._read_lines_unlocked(timeout)
+        lines = await self._read_lines_unlocked(timeout, command=name)
         if lowered in _REBOOT_COMMANDS:
             await asyncio.sleep(OPEN_SETTLE)
-            extra = await self._read_lines_unlocked(1.0)
+            extra = await self._read_lines_unlocked(1.0, command=name)
             lines.extend(extra)
         return EzoResponse(command=name, lines=lines)
 
@@ -152,7 +174,9 @@ class EzoSerialClient:
             self._connected = False
             raise EzoClientError(f"Write failed on {self.port}: {err}") from err
 
-    async def _read_lines_unlocked(self, timeout: float) -> list[ParsedLine]:
+    async def _read_lines_unlocked(
+        self, timeout: float, command: str | None = None
+    ) -> list[ParsedLine]:
         """Read CR-terminated lines until ``timeout`` elapses."""
         serial = self._require_serial()
         lines: list[ParsedLine] = []
@@ -178,7 +202,7 @@ class EzoSerialClient:
             parsed = parse_line(text)
             lines.append(parsed)
             _LOGGER.debug("EZO %s << %s", self.port, text)
-            if _is_terminal(lines):
+            if _is_terminal(lines, command):
                 # Give a tiny extra window for a trailing *OK after a payload.
                 if parsed.kind is not LineKind.STATUS:
                     extra = await self._read_one_unlocked(0.15)
@@ -229,16 +253,23 @@ def _decode_line(raw: bytes) -> str:
     return raw.decode("ascii", errors="ignore").strip("\r\n\x00 ").strip()
 
 
-def _is_terminal(lines: Iterable[ParsedLine]) -> bool:
-    """True once we have a complete command response."""
-    had_payload = False
+def _is_terminal(lines: Iterable[ParsedLine], command: str | None = None) -> bool:
+    """True once we have a complete reply for ``command``.
+
+    A leftover continuous reading must not complete ``Cal``, ``i``, etc.
+    When ``command`` is omitted (listen / drain), keep reading until timeout.
+    """
+    if not command:
+        return False
+    verb = command.split(",", 1)[0].lower()
     for line in lines:
         if line.kind is LineKind.STATUS and line.status_code in {"OK", "ER", "OV", "UV"}:
             return True
-        if line.kind in {LineKind.READING, LineKind.QUERY}:
-            had_payload = True
-    # When response codes are off, the first payload line is the whole reply.
-    return had_payload
+        if verb == "r" and line.kind is LineKind.READING:
+            return True
+        if verb != "r" and line.kind is LineKind.QUERY:
+            return True
+    return False
 
 
 async def probe_ezo_orp(

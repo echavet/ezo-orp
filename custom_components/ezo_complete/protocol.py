@@ -229,14 +229,19 @@ def parse_continuous(response: EzoResponse | str) -> ContinuousResponse | None:
 
 
 def parse_calibrated(response: EzoResponse | str) -> bool | None:
-    """Parse ``?Cal,0`` / ``?Cal,1``."""
+    """Parse ``?Cal,0`` / ``?Cal,1`` (any casing, including mixed stream lines)."""
     line = _query_line(response, "cal")
-    if line is None:
-        return None
-    if not line.query_args:
+    if line is not None and line.query_args:
+        try:
+            return int(float(line.query_args[0])) > 0
+        except ValueError:
+            pass
+    raw = _raw_blob(response)
+    match = re.search(r"\?Cal\s*,\s*(\d+)", raw, flags=re.IGNORECASE)
+    if match is None:
         return None
     try:
-        return int(float(line.query_args[0])) > 0
+        return int(match.group(1)) > 0
     except ValueError:
         return None
 
@@ -276,6 +281,39 @@ def parse_export_count(response: EzoResponse | str) -> int | None:
         return int(float(line.query_args[0]))
     except ValueError:
         return None
+
+
+_USB_PRODUCT_MARKERS = (
+    "FT230X",
+    "FT232",
+    "FT2232",
+    "FT4232",
+    "BASIC UART",
+    "USB SERIAL",
+    "USB-SERIAL",
+)
+
+
+def is_usb_product_name(name: str | None) -> bool:
+    """True if ``name`` looks like an FTDI USB product string, not an EZO name."""
+    if not name or not name.strip():
+        return True
+    upper = name.upper()
+    return any(marker in upper for marker in _USB_PRODUCT_MARKERS)
+
+
+def resolve_display_name(
+    *,
+    ezo_name: str | None = None,
+    configured: str | None = None,
+    fallback: str = "EZO ORP",
+) -> str:
+    """Prefer the EZO ``Name`` register, never the FTDI product string."""
+    if ezo_name and ezo_name.strip():
+        return ezo_name.strip()
+    if configured and not is_usb_product_name(configured):
+        return configured.strip()
+    return fallback
 
 
 def unique_id_from_serial(serial_number: str | None, device_type: str = SUPPORTED_DEVICE_TYPE) -> str:

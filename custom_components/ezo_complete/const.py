@@ -5,7 +5,7 @@ from __future__ import annotations
 DOMAIN = "ezo_complete"
 MANUFACTURER = "Atlas Scientific"
 MODEL = "EZO Complete-ORP"
-DEFAULT_NAME = "EZO Complete-ORP"
+DEFAULT_NAME = "EZO ORP"
 DEFAULT_BAUDRATE = 9600
 DEFAULT_UPDATE_INTERVAL = 5
 DEFAULT_CONTINUOUS_ON_START = True

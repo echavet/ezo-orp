@@ -8,10 +8,12 @@ from datetime import timedelta
 import logging
 import time
 
+from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME, CONF_PORT
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .client import EzoClientError, EzoNotOrpError, EzoSerialClient
@@ -36,6 +38,7 @@ from .models import EzoDeviceState
 from .protocol import (
     LineKind,
     ParsedLine,
+    is_usb_product_name,
     parse_calibrated,
     parse_continuous,
     parse_device_info,
@@ -44,6 +47,7 @@ from .protocol import (
     parse_led,
     parse_name,
     parse_status,
+    resolve_display_name,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -92,8 +96,11 @@ class EzoCoordinator(DataUpdateCoordinator[EzoDeviceState]):
 
     @property
     def device_name(self) -> str:
-        """Friendly name shown on the HA device."""
-        return self.entry.data.get(CONF_NAME) or self.entry.title or "EZO Complete-ORP"
+        """Friendly name: EZO Name register, never the FTDI product string."""
+        return resolve_display_name(
+            ezo_name=self.data.device_name,
+            configured=self.entry.data.get(CONF_NAME) or self.entry.title,
+        )
 
     @property
     def continuous_on_start(self) -> bool:
@@ -169,13 +176,78 @@ class EzoCoordinator(DataUpdateCoordinator[EzoDeviceState]):
     async def async_calibrate(self, value: float) -> None:
         """Single-point calibration at ``value`` mV (live sensor stays visible)."""
         number = int(round(value))
-        await self._command(f"Cal,{number}")
-        await self._command("Cal,?")
+        await self._async_run_calibration(f"Cal,{number}", expect_calibrated=True, mv=number)
 
     async def async_calibrate_clear(self) -> None:
         """Erase stored calibration."""
-        await self._command("Cal,clear")
-        await self._command("Cal,?")
+        await self._async_run_calibration("Cal,clear", expect_calibrated=False, mv=None)
+
+    async def _async_run_calibration(
+        self,
+        cal_command: str,
+        *,
+        expect_calibrated: bool,
+        mv: int | None,
+    ) -> None:
+        """Stop the UART stream, send Cal, refresh Cal,? + R, restore continuous."""
+        resume_continuous = self.data.continuous is not False
+        interval = self.data.continuous_interval or self.configured_continuous_interval
+        error_text: str | None = None
+        try:
+            await self._command("C,0", ignore_error=True)
+            await asyncio.sleep(0.2)
+            cal = await self._command(cal_command)
+            if not cal.ok and cal.error_code:
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN,
+                    translation_key="command_failed",
+                    translation_placeholders={
+                        "command": cal_command,
+                        "error": cal.error_code,
+                    },
+                )
+            query = await self._command("Cal,?")
+            calibrated = parse_calibrated(query)
+            if calibrated is None:
+                calibrated = expect_calibrated
+            state = self.data.copy()
+            state.calibrated = calibrated
+            self.async_set_updated_data(state)
+            reading = await self._command("R", ignore_error=True)
+            orp = reading.first_reading() if reading is not None else self.data.orp
+            if orp is not None:
+                state = self.data.copy()
+                state.orp = orp
+                state.calibrated = calibrated
+                self.async_set_updated_data(state)
+            _LOGGER.info(
+                "Calibration %s done: Cal,?= %s ORP=%s reply=%s",
+                cal_command,
+                "1" if calibrated else "0",
+                orp,
+                " | ".join(cal.raw_lines + query.raw_lines),
+            )
+            self._notify_calibration(
+                success=True,
+                command=cal_command,
+                calibrated=calibrated,
+                orp=orp,
+                mv=mv,
+            )
+        except HomeAssistantError as err:
+            error_text = str(err)
+            _LOGGER.info("Calibration %s failed: %s", cal_command, err)
+            self._notify_calibration(
+                success=False,
+                command=cal_command,
+                error=error_text,
+                mv=mv,
+            )
+            raise
+        finally:
+            if resume_continuous:
+                await self._command(f"C,{interval}", ignore_error=True)
+                await self._command("C,?", ignore_error=True)
 
     async def async_sleep(self) -> None:
         """Put the circuit to sleep. Any later command wakes it."""
@@ -216,9 +288,31 @@ class EzoCoordinator(DataUpdateCoordinator[EzoDeviceState]):
             )
             return
         self._factory_armed_until = 0.0
-        await self._command("Factory")
-        await asyncio.sleep(1.5)
-        await self._initialize_device()
+        try:
+            await self._command("C,0", ignore_error=True)
+            await self._command("Factory", ignore_error=True)
+            # Circuit reboots then comes back in factory continuous mode.
+            await asyncio.sleep(2.5)
+            await self._command("C,0", ignore_error=True)
+            await asyncio.sleep(0.3)
+            await self._initialize_device()
+        except (EzoNotOrpError, EzoClientError) as err:
+            _LOGGER.info("Factory reset re-init failed: %s", err)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="command_failed",
+                translation_placeholders={
+                    "command": "Factory",
+                    "error": str(err),
+                },
+            ) from err
+        _LOGGER.info("Factory reset complete; device re-identified")
+        persistent_notification.async_create(
+            self.hass,
+            "Factory reset OK — circuit réidentifié (ORP).",
+            title="EZO ORP",
+            notification_id=f"{DOMAIN}_{self.entry.entry_id}_factory",
+        )
 
     async def async_export_calibration(self) -> str:
         """Dump the calibration payload via repeated ``Export`` commands."""
@@ -307,7 +401,14 @@ class EzoCoordinator(DataUpdateCoordinator[EzoDeviceState]):
         try:
             if self.data.sleeping and cmd.split(",", 1)[0].lower() != "sleep":
                 await self.client.wake()
+            verb = cmd.split(",", 1)[0].lower()
+            log = _LOGGER.info if verb in {"cal", "c", "factory"} else _LOGGER.debug
+            log("EZO >> %s", cmd)
             response = await self.client.command(cmd)
+            log(
+                "EZO << %s",
+                " | ".join(response.raw_lines) if response.raw_lines else "<empty>",
+            )
         except EzoClientError as err:
             self._schedule_reconnect()
             raise HomeAssistantError(
@@ -322,12 +423,17 @@ class EzoCoordinator(DataUpdateCoordinator[EzoDeviceState]):
             return response
         self._apply_lines(response.lines, last_command=cmd)
         if not response.ok:
+            verb = cmd.split(",", 1)[0].lower()
             if ignore_error:
                 _LOGGER.debug(
                     "Ignoring failed command %s (%s)",
                     cmd,
                     response.error_code or "unknown",
                 )
+                return response
+            # Cal,<n> with response codes off has no *OK; no *ER still means go on.
+            if verb == "cal" and response.error_code is None:
+                _LOGGER.info("EZO %s: no *OK (response codes off?); continuing", cmd)
                 return response
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
@@ -346,7 +452,7 @@ class EzoCoordinator(DataUpdateCoordinator[EzoDeviceState]):
                 if self._pause_listen or not self.client.connected:
                     await asyncio.sleep(0.2)
                     continue
-                if not self.data.continuous:
+                if self.data.continuous is False:
                     await asyncio.sleep(0.5)
                     continue
                 # Short reads so a user command can take the lock quickly.
@@ -383,6 +489,17 @@ class EzoCoordinator(DataUpdateCoordinator[EzoDeviceState]):
         state.factory_armed = time.monotonic() <= self._factory_armed_until
         if last_command and last_command.split(",", 1)[0].lower() != "sleep":
             state.sleeping = False
+        if last_command:
+            verb = last_command.split(",", 1)[0].lower()
+            arg = last_command[len(verb) + 1 :].lower() if "," in last_command else ""
+            if verb == "cal" and arg not in {"?", "clear"}:
+                if any(line.status_code == "OK" for line in lines) or parse_calibrated(
+                    "\n".join(line.raw for line in lines)
+                ):
+                    state.calibrated = True
+            elif verb == "cal" and arg == "clear":
+                if any(line.status_code == "OK" for line in lines):
+                    state.calibrated = False
         self.async_set_updated_data(state)
 
     def _apply_query(self, state: EzoDeviceState, line: ParsedLine) -> None:
@@ -466,3 +583,44 @@ class EzoCoordinator(DataUpdateCoordinator[EzoDeviceState]):
             self._unavailable_logged = False
         self.last_update_success = True
         self.async_update_listeners()
+
+    def _notify_calibration(
+        self,
+        *,
+        success: bool,
+        command: str,
+        calibrated: bool | None = None,
+        orp: float | None = None,
+        mv: int | None = None,
+        error: str | None = None,
+    ) -> None:
+        """Persistent notification so the UI is not silent after a button press."""
+        title = "EZO ORP"
+        if success:
+            cal_txt = "Cal,?=1" if calibrated else "Cal,?=0"
+            orp_txt = f"{orp:.1f} mV" if orp is not None else "n/a"
+            target = f"{mv} mV" if mv is not None else command
+            message = f"{command} OK — cible {target}, {cal_txt}, ORP={orp_txt}"
+        else:
+            message = f"{command} failed: {error or 'timeout / *ER'}"
+        persistent_notification.async_create(
+            self.hass,
+            message,
+            title=title,
+            notification_id=f"{DOMAIN}_{self.entry.entry_id}_calibrate",
+        )
+
+    def _async_sync_device_name(self) -> None:
+        """Replace an FTDI product title with EZO ORP or the circuit Name."""
+        name = self.device_name
+        configured = self.entry.data.get(CONF_NAME) or self.entry.title
+        if is_usb_product_name(configured) or is_usb_product_name(self.entry.title):
+            self.hass.config_entries.async_update_entry(
+                self.entry,
+                title=name,
+                data={**self.entry.data, CONF_NAME: name},
+            )
+        registry = dr.async_get(self.hass)
+        device = registry.async_get_device(identifiers={(DOMAIN, self.unique_id)})
+        if device is not None and device.name_by_user is None and device.name != name:
+            registry.async_update_device(device.id, name=name)
