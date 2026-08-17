@@ -123,6 +123,14 @@ def test_export_count() -> None:
     assert protocol.parse_export_count("?EXPORT,6") == 6
 
 
+def test_response_code_aliases() -> None:
+    assert protocol.parse_flag("?OK,1", "ok") is True
+    assert protocol.parse_flag("?O,1", "o") is True
+    assert protocol.parse_flag("?RESPONSE,0", "response") is False
+    assert "RESPONSE,1" in const.RESPONSE_CODE_ENABLE_COMMANDS
+    assert "OK,1" in const.RESPONSE_CODE_ENABLE_COMMANDS
+
+
 def test_response_from_collected_i() -> None:
     response = protocol.EzoResponse(
         command="i",

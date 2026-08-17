@@ -28,6 +28,7 @@ from .const import (
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
     FACTORY_ARM_SECONDS,
+    RESPONSE_CODE_ENABLE_COMMANDS,
     RAW_LINE_HISTORY,
     RECONNECT_DELAY,
 )
@@ -268,24 +269,34 @@ class EzoCoordinator(DataUpdateCoordinator[EzoDeviceState]):
         state.factory_armed = False
         self.async_set_updated_data(state)
 
-        # Prefer framed replies for the rest of the session.
-        await self._command("OK,1")
+        # Factory default is often continuous-on: stop the stream so queries
+        # are not mixed with unsolicited readings.
+        await self._command("C,0", ignore_error=True)
+        await self._enable_response_codes()
         if self.continuous_on_start:
-            await self._command(f"C,{self.configured_continuous_interval}")
+            await self._command(
+                f"C,{self.configured_continuous_interval}", ignore_error=True
+            )
         await self._refresh_diagnostics()
         self._last_diag_at = time.monotonic()
         if not self.data.continuous:
-            await self._command("R")
+            await self._command("R", ignore_error=True)
+
+    async def _enable_response_codes(self) -> None:
+        """Turn on *OK framing. Command name differs across EZO firmware."""
+        for cmd in RESPONSE_CODE_ENABLE_COMMANDS:
+            response = await self._command(cmd, ignore_error=True)
+            if response is not None and response.ok:
+                _LOGGER.debug("Response codes enabled with %s", cmd)
+                return
+        _LOGGER.debug("No response-code command accepted; continuing without *OK")
 
     async def _refresh_diagnostics(self) -> None:
         """Query registers that do not stream in continuous mode."""
         for cmd in ("C,?", "Cal,?", "L,?", "Status", "Name,?", "ORPext,?", "i"):
-            try:
-                await self._command(cmd)
-            except EzoClientError as err:
-                _LOGGER.debug("Diagnostic %s failed: %s", cmd, err)
+            await self._command(cmd, ignore_error=True)
 
-    async def _command(self, cmd: str):
+    async def _command(self, cmd: str, *, ignore_error: bool = False):
         """Issue a command, pause the listen loop, apply the reply."""
         if not self.client.connected:
             raise HomeAssistantError(
@@ -311,6 +322,13 @@ class EzoCoordinator(DataUpdateCoordinator[EzoDeviceState]):
             return response
         self._apply_lines(response.lines, last_command=cmd)
         if not response.ok:
+            if ignore_error:
+                _LOGGER.debug(
+                    "Ignoring failed command %s (%s)",
+                    cmd,
+                    response.error_code or "unknown",
+                )
+                return response
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="command_failed",
@@ -402,8 +420,8 @@ class EzoCoordinator(DataUpdateCoordinator[EzoDeviceState]):
             flag = parse_flag(raw, "orpext")
             if flag is not None:
                 state.orp_extended = flag
-        elif key == "ok":
-            flag = parse_flag(raw, "ok")
+        elif key in {"ok", "o", "response"}:
+            flag = parse_flag(raw, key)
             if flag is not None:
                 state.response_codes = flag
 

@@ -2,7 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
-Versioning follows **CalVer** `YYYY.M.D` (date-based, same spirit as Home Assistant Core), e.g. `2026.8.17`.
+Versioning follows **CalVer** `YYYY.M.D` (date-based, same spirit as Home Assistant Core), e.g. `2026.8.18`.
+
+## [2026.8.18] - 2026-08-17
+
+### Fixed
+
+- Setup no longer fails when `OK,1` returns `*ER`. Response-code framing is firmware-dependent (`RESPONSE,1` / `O,1` / `OK,1`); all three are tried and ignored if unsupported. Continuous stream is stopped before the remaining init queries.
 
 ## [2026.8.17] - 2026-08-17
 
@@ -16,4 +22,5 @@ Versioning follows **CalVer** `YYYY.M.D` (date-based, same spirit as Home Assist
 - Services: `send_command`, `factory_reset` (confirm), `export_calibration`, `import_calibration`.
 - FR/EN translations, diagnostics dump, local brand assets, unit tests for the EZO parser.
 
+[2026.8.18]: https://github.com/echavet/ezo-orp/releases/tag/2026.8.18
 [2026.8.17]: https://github.com/echavet/ezo-orp/releases/tag/2026.8.17

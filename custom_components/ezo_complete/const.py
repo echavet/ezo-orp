@@ -40,6 +40,10 @@ BAUDRATES: tuple[int, ...] = (300, 1200, 2400, 9600, 19200, 38400, 57600, 115200
 # Atlas EZO device type we accept after the `i` probe.
 SUPPORTED_DEVICE_TYPE = "ORP"
 
+# Response-code enable: firmware-dependent (Complete docs say OK, classic EZO
+# says RESPONSE / O). Tried in order; *ER is ignored.
+RESPONSE_CODE_ENABLE_COMMANDS: tuple[str, ...] = ("RESPONSE,1", "O,1", "OK,1")
+
 # Command timeouts (seconds). Reading is slower than query commands.
 COMMAND_TIMEOUT = 2.0
 READ_COMMAND_TIMEOUT = 3.0
