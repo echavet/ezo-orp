@@ -1,0 +1,152 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "EZO Complete-ORP",
+        "description": "Select the USB serial port of the Atlas Scientific EZO Complete-ORP. The integration probes the device with the `i` command and only continues if the reply contains ORP.",
+        "data": {
+          "port": "Serial port",
+          "baudrate": "Baudrate",
+          "name": "Name"
+        },
+        "data_description": {
+          "port": "Prefer a /dev/serial/by-id/ path when listed — it stays stable if ttyUSB0 changes.",
+          "baudrate": "Factory default is 9600. Only change this if you already sent Baud,<n> to the circuit.",
+          "name": "Friendly name shown in Home Assistant."
+        }
+      },
+      "usb_confirm": {
+        "title": "EZO Complete-ORP detected",
+        "description": "USB device {serial} on {port} (firmware {firmware}) answered as an ORP circuit.",
+        "data": {
+          "name": "Name"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure EZO Complete-ORP",
+        "description": "Change the serial port or baudrate. The device must still identify as ORP.",
+        "data": {
+          "port": "Serial port",
+          "baudrate": "Baudrate",
+          "name": "Name"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot open the serial port or the circuit did not answer",
+      "not_orp": "This serial device is not an Atlas EZO ORP circuit",
+      "unknown": "Unexpected error while probing the device"
+    },
+    "abort": {
+      "already_configured": "This EZO Complete-ORP is already configured",
+      "not_orp": "This USB device is not an Atlas EZO ORP circuit",
+      "cannot_connect": "Cannot talk to the USB serial device",
+      "reconfigure_successful": "Reconfiguration successful",
+      "wrong_device": "This is not the same EZO Complete-ORP"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "EZO Complete-ORP options",
+        "data": {
+          "update_interval": "Poll interval (seconds)",
+          "continuous_on_start": "Enable continuous mode on startup",
+          "continuous_interval": "Continuous reading period (seconds)"
+        },
+        "data_description": {
+          "update_interval": "Used to refresh diagnostics, and to send R when continuous mode is off.",
+          "continuous_on_start": "Recommended. The circuit streams ORP readings by itself.",
+          "continuous_interval": "Period sent as C,<n> after connect when continuous mode is enabled."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "orp": { "name": "ORP" },
+      "device_info": { "name": "Device info" },
+      "status_reason": {
+        "name": "Last reset reason",
+        "state": {
+          "power": "Power on",
+          "software": "Software reset",
+          "brownout": "Brownout",
+          "watchdog": "Watchdog",
+          "unknown": "Unknown"
+        }
+      },
+      "status_voltage": { "name": "Supply voltage" },
+      "calibration_state": {
+        "name": "Calibration",
+        "state": {
+          "calibrated": "Calibrated",
+          "not_calibrated": "Not calibrated"
+        }
+      },
+      "firmware": { "name": "Firmware" }
+    },
+    "switch": {
+      "continuous": { "name": "Continuous mode" },
+      "led": { "name": "LED" },
+      "orp_extended": { "name": "Extended ORP scale" }
+    },
+    "button": {
+      "calibrate_225": { "name": "Calibrate 225 mV" },
+      "calibrate_custom": { "name": "Calibrate custom value" },
+      "calibrate_clear": { "name": "Clear calibration" },
+      "find": { "name": "Find device" },
+      "sleep": { "name": "Sleep" },
+      "export_calibration": { "name": "Export calibration" },
+      "factory_reset": { "name": "Factory reset" }
+    },
+    "number": {
+      "calibration_value": { "name": "Custom calibration value" },
+      "continuous_interval": { "name": "Continuous interval" }
+    },
+    "text": {
+      "device_name": { "name": "Device name" }
+    }
+  },
+  "services": {
+    "send_command": {
+      "name": "Send command",
+      "description": "Send a raw EZO UART command (without the trailing CR).",
+      "fields": {
+        "device_id": { "name": "Device", "description": "Target EZO Complete-ORP." },
+        "command": { "name": "Command", "description": "ASCII command, for example R or Status." }
+      }
+    },
+    "factory_reset": {
+      "name": "Factory reset",
+      "description": "Restore factory defaults. confirm must be true.",
+      "fields": {
+        "device_id": { "name": "Device", "description": "Target EZO Complete-ORP." },
+        "confirm": { "name": "Confirm", "description": "Must be true to execute the reset." }
+      }
+    },
+    "export_calibration": {
+      "name": "Export calibration",
+      "description": "Read the calibration dump (stored on the export diagnostics snapshot).",
+      "fields": {
+        "device_id": { "name": "Device", "description": "Target EZO Complete-ORP." }
+      }
+    },
+    "import_calibration": {
+      "name": "Import calibration",
+      "description": "Write previously exported calibration lines back to the circuit.",
+      "fields": {
+        "device_id": { "name": "Device", "description": "Target EZO Complete-ORP." },
+        "payload": { "name": "Payload", "description": "One Export/Import line per row." }
+      }
+    }
+  },
+  "exceptions": {
+    "not_connected": { "message": "The EZO Complete-ORP is not connected" },
+    "command_failed": { "message": "Command {command} failed: {error}" },
+    "not_orp": { "message": "The serial device is not an EZO ORP circuit" },
+    "unknown_device": { "message": "Unknown EZO Complete-ORP device" },
+    "factory_not_confirmed": { "message": "Factory reset requires confirm: true" },
+    "import_empty": { "message": "Calibration import payload is empty" }
+  }
+}

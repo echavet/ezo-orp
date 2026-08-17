@@ -1,0 +1,152 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "EZO Complete-ORP",
+        "description": "Sélectionnez le port série USB de l'Atlas Scientific EZO Complete-ORP. L'intégration envoie la commande `i` et n'accepte l'appareil que si la réponse contient ORP.",
+        "data": {
+          "port": "Port série",
+          "baudrate": "Débit (baudrate)",
+          "name": "Nom"
+        },
+        "data_description": {
+          "port": "Préférez un chemin /dev/serial/by-id/ lorsqu'il est listé — il reste stable si ttyUSB0 change.",
+          "baudrate": "La valeur d'usine est 9600. Ne changez ce champ que si vous avez déjà envoyé Baud,<n> au circuit.",
+          "name": "Nom affiché dans Home Assistant."
+        }
+      },
+      "usb_confirm": {
+        "title": "EZO Complete-ORP détecté",
+        "description": "Le périphérique USB {serial} sur {port} (firmware {firmware}) a répondu comme un circuit ORP.",
+        "data": {
+          "name": "Nom"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigurer EZO Complete-ORP",
+        "description": "Changer le port série ou le débit. L'appareil doit toujours s'identifier comme ORP.",
+        "data": {
+          "port": "Port série",
+          "baudrate": "Débit (baudrate)",
+          "name": "Nom"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Impossible d'ouvrir le port série ou le circuit n'a pas répondu",
+      "not_orp": "Ce périphérique série n'est pas un circuit Atlas EZO ORP",
+      "unknown": "Erreur inattendue pendant la vérification de l'appareil"
+    },
+    "abort": {
+      "already_configured": "Cet EZO Complete-ORP est déjà configuré",
+      "not_orp": "Ce périphérique USB n'est pas un circuit Atlas EZO ORP",
+      "cannot_connect": "Impossible de communiquer avec le périphérique USB",
+      "reconfigure_successful": "Reconfiguration réussie",
+      "wrong_device": "Ce n'est pas le même EZO Complete-ORP"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options EZO Complete-ORP",
+        "data": {
+          "update_interval": "Intervalle de polling (secondes)",
+          "continuous_on_start": "Activer le mode continu au démarrage",
+          "continuous_interval": "Période des lectures continues (secondes)"
+        },
+        "data_description": {
+          "update_interval": "Sert à rafraîchir les diagnostics, et à envoyer R si le mode continu est désactivé.",
+          "continuous_on_start": "Recommandé. Le circuit envoie alors les mesures ORP tout seul.",
+          "continuous_interval": "Période envoyée via C,<n> après connexion si le mode continu est activé."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "orp": { "name": "ORP" },
+      "device_info": { "name": "Infos appareil" },
+      "status_reason": {
+        "name": "Raison du dernier reset",
+        "state": {
+          "power": "Mise sous tension",
+          "software": "Reset logiciel",
+          "brownout": "Brownout",
+          "watchdog": "Watchdog",
+          "unknown": "Inconnue"
+        }
+      },
+      "status_voltage": { "name": "Tension d'alimentation" },
+      "calibration_state": {
+        "name": "Calibration",
+        "state": {
+          "calibrated": "Calibré",
+          "not_calibrated": "Non calibré"
+        }
+      },
+      "firmware": { "name": "Firmware" }
+    },
+    "switch": {
+      "continuous": { "name": "Mode continu" },
+      "led": { "name": "LED" },
+      "orp_extended": { "name": "Échelle ORP étendue" }
+    },
+    "button": {
+      "calibrate_225": { "name": "Calibrer 225 mV" },
+      "calibrate_custom": { "name": "Calibrer la valeur personnalisée" },
+      "calibrate_clear": { "name": "Effacer la calibration" },
+      "find": { "name": "Trouver l'appareil" },
+      "sleep": { "name": "Veille" },
+      "export_calibration": { "name": "Exporter la calibration" },
+      "factory_reset": { "name": "Reset usine" }
+    },
+    "number": {
+      "calibration_value": { "name": "Valeur de calibration personnalisée" },
+      "continuous_interval": { "name": "Intervalle du mode continu" }
+    },
+    "text": {
+      "device_name": { "name": "Nom de l'appareil" }
+    }
+  },
+  "services": {
+    "send_command": {
+      "name": "Envoyer une commande",
+      "description": "Envoyer une commande UART EZO brute (sans le CR final).",
+      "fields": {
+        "device_id": { "name": "Appareil", "description": "EZO Complete-ORP cible." },
+        "command": { "name": "Commande", "description": "Commande ASCII, par exemple R ou Status." }
+      }
+    },
+    "factory_reset": {
+      "name": "Reset usine",
+      "description": "Restaurer les paramètres d'usine. confirm doit être true.",
+      "fields": {
+        "device_id": { "name": "Appareil", "description": "EZO Complete-ORP cible." },
+        "confirm": { "name": "Confirmer", "description": "Doit être true pour exécuter le reset." }
+      }
+    },
+    "export_calibration": {
+      "name": "Exporter la calibration",
+      "description": "Lire le dump de calibration (conservé dans le snapshot de diagnostics).",
+      "fields": {
+        "device_id": { "name": "Appareil", "description": "EZO Complete-ORP cible." }
+      }
+    },
+    "import_calibration": {
+      "name": "Importer la calibration",
+      "description": "Réécrire les lignes de calibration exportées précédemment.",
+      "fields": {
+        "device_id": { "name": "Appareil", "description": "EZO Complete-ORP cible." },
+        "payload": { "name": "Données", "description": "Une ligne Export/Import par rangée." }
+      }
+    }
+  },
+  "exceptions": {
+    "not_connected": { "message": "L'EZO Complete-ORP n'est pas connecté" },
+    "command_failed": { "message": "La commande {command} a échoué : {error}" },
+    "not_orp": { "message": "Le périphérique série n'est pas un circuit EZO ORP" },
+    "unknown_device": { "message": "Appareil EZO Complete-ORP inconnu" },
+    "factory_not_confirmed": { "message": "Le reset usine exige confirm: true" },
+    "import_empty": { "message": "Les données d'import de calibration sont vides" }
+  }
+}

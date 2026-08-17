@@ -1,0 +1,33 @@
+{
+  "entity": {
+    "sensor": {
+      "orp": { "default": "mdi:sine-wave" },
+      "device_info": { "default": "mdi:information-outline" },
+      "status_reason": { "default": "mdi:restart-alert" },
+      "status_voltage": { "default": "mdi:flash" },
+      "calibration_state": { "default": "mdi:tune-vertical" },
+      "firmware": { "default": "mdi:chip" }
+    },
+    "switch": {
+      "continuous": { "default": "mdi:sync" },
+      "led": { "default": "mdi:led-on" },
+      "orp_extended": { "default": "mdi:arrow-expand-horizontal" }
+    },
+    "button": {
+      "calibrate_225": { "default": "mdi:target" },
+      "calibrate_custom": { "default": "mdi:target-variant" },
+      "calibrate_clear": { "default": "mdi:restore" },
+      "find": { "default": "mdi:map-marker-radius" },
+      "sleep": { "default": "mdi:sleep" },
+      "export_calibration": { "default": "mdi:export" },
+      "factory_reset": { "default": "mdi:factory" }
+    },
+    "number": {
+      "calibration_value": { "default": "mdi:gauge" },
+      "continuous_interval": { "default": "mdi:timer-outline" }
+    },
+    "text": {
+      "device_name": { "default": "mdi:rename-box" }
+    }
+  }
+}
